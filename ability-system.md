@@ -68,6 +68,7 @@ let logger = Ability.getAbility(with: ConsoleLogger()) as! LoggingAbility
 ```swift
 // 定义 FuncKey（Input/Return 泛型 + funcId 标识）
 // 参数: (content, useKey, category, file, line, method)
+// content 是兜底显示内容，useKey 是可选的本地化查找 key（不传则用 content 查找）
 public let funcLocalized = FuncKey<(String, String?, String?, String, Int, String), String?>(funcId: "localized")
 
 // 注册实现（通过 AbilityCenter.shared.register）
@@ -77,7 +78,10 @@ AbilityCenter.shared.register(funcLocalized) { (content, useKey, category, file,
 }
 
 // 调用（返回 nil 表示未注册）
+// 静态文案：content 和查找 key 相同
 let str = Ability.execute(funcLocalized, params: ("greeting", nil, "Home", #file, #line, #function)) ?? "greeting"
+// 动态内容：兜底显示 error.reason，用 error.code 作为稳定的查找 key
+let msg = Ability.execute(funcLocalized, params: (error.reason, error.code, nil, #file, #line, #function)) ?? error.reason
 ```
 
 **DefaultFuncKey（带默认实现的函数能力）:**
