@@ -67,11 +67,13 @@ let logger = Ability.getAbility(with: ConsoleLogger()) as! LoggingAbility
 
 ```swift
 // 定义 FuncKey（Input/Return 泛型 + funcId 标识）
+// 参数: (content, useKey, category, file, line, method)
 public let funcLocalized = FuncKey<(String, String?, String?, String, Int, String), String?>(funcId: "localized")
 
 // 注册实现（通过 AbilityCenter.shared.register）
-AbilityCenter.shared.register(funcLocalized) { (key, defaultValue, category, file, line, method) in
-    return NSLocalizedString(key, comment: "")
+AbilityCenter.shared.register(funcLocalized) { (content, useKey, category, file, line, method) in
+    // useKey ?? content 作为查找 key
+    return NSLocalizedString(useKey ?? content, comment: "")
 }
 
 // 调用（返回 nil 表示未注册）
