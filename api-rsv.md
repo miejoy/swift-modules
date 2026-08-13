@@ -3,7 +3,7 @@
 RSV 架构的核心框架 API：状态管理（DataFlow）、视图绑定（ViewFlow）、资源加载协议（ResourceLoadable）。
 
 > 配套文档：`overview.md`（模块索引）、`architecture-rsv.md`（RSV 架构指南）
-> 最后验证：2026-08-02（已对齐源码）
+> 最后验证：2026-08-13（已对齐源码）
 
 ---
 
@@ -20,17 +20,22 @@ RSV 架构的核心框架 API：状态管理（DataFlow）、视图绑定（View
 ```
 StorableState              ← 基础状态协议（Sendable，有 stateId）
 ├── InitializableState     ← 可无参初始化（init()）
-├── StateContainable       ← 可容纳子状态（subStates 字典）
-├── AttachableState        ← 可挂载到父状态（associatedtype UpState: StateContainable）
+├── StateContainable       ← 可容纳子状态（subStore API：addSubStore/getSubStore/subStateIds）
+├── AttachableState        ← 可挂载到父状态（associatedtype UpState: StateContainable，defaultStateId）
 │   └── SharableState      ← 可跨视图共享（UpState: SharableState，默认 AppState）
 │       └── FullSharableState ← 完整共享状态（+ ReducerLoadableState + ActionBindable）
 ReducerLoadableState       ← 可自动加载 Reducer（loadReducers 由框架在 didBoxed 时自动调用）
 ActionBindable             ← 可绑定默认 Action（associatedtype BindAction: Action）
+
+通配类型（不可实例化 enum，与 Never 对称）：
+Never   ← Swift 标准库，用作 UpState 终点（如 AppState.UpState = Never）
+AnyState ← 用作 SubState/UpState 通配语义
 ```
 
 **关键说明:**
 - `FullSharableState = SharableState + ReducerLoadableState + ActionBindable`，定义 `typealias BindAction` 和 `static func loadReducers(on:)` 后，框架自动注册 reducer
 - `Store<T>.shared` — 全局单例 Store，按 `ObjectIdentifier(State.self)` 缓存在 `s_mapSharedStore`，首次创建时自动 `attachToUpStore` 挂载到父状态
+- **subStore API**（`State: StateContainable`）：`addSubStore(subStore)` 挂载子 Store（自动注册销毁回调），`getSubStore(of:stateId:)` 获取子 Store，`subStateIds` 查看所有子 Store ID。子 Store 销毁时自动从字典移除，无需手动 remove
 
 **基础使用:**
 ```swift
@@ -173,6 +178,213 @@ struct LoginView: View {
     }
 }
 ```
+
+**Store Binding（推荐）：**
+`@SharedState` / `@ViewState` 的 `# RSV 架构 API (DataFlow + ViewFlow + ResourceLoadable)
+
+RSV 架构的核心框架 API：状态管理（DataFlow）、视图绑定（ViewFlow）、资源加载协议（ResourceLoadable）。
+
+> 配套文档：`overview.md`（模块索引）、`architecture-rsv.md`（RSV 架构指南）
+> 最后验证：2026-08-13（已对齐源码）
+
+---
+
+## DataFlow - 数据状态管理
+
+**用途:** RSV 架构的 State 层，定义应用状态如何存储、变更、传递
+
+**核心概念:**
+- `Action` - 状态变更指令（枚举，遵循 `Action: Sendable` 协议）
+- `Store<T>` - 全局状态管理器 (`@MainActor ObservableObject`，`@dynamicMemberLookup`)
+- `Reducer` - 状态变更逻辑 (`@MainActor (inout State, Action) -> Void`)
+
+**协议继承体系:**
+```
+StorableState              ← 基础状态协议（Sendable，有 stateId）
+├── InitializableState     ← 可无参初始化（init()）
+├── StateContainable       ← 可容纳子状态（subStore API：addSubStore/getSubStore/subStateIds）
+├── AttachableState        ← 可挂载到父状态（associatedtype UpState: StateContainable，defaultStateId）
+│   └── SharableState      ← 可跨视图共享（UpState: SharableState，默认 AppState）
+│       └── FullSharableState ← 完整共享状态（+ ReducerLoadableState + ActionBindable）
+ReducerLoadableState       ← 可自动加载 Reducer（loadReducers 由框架在 didBoxed 时自动调用）
+ActionBindable             ← 可绑定默认 Action（associatedtype BindAction: Action）
+
+通配类型（不可实例化 enum，与 Never 对称）：
+Never   ← Swift 标准库，用作 UpState 终点（如 AppState.UpState = Never）
+AnyState ← 用作 SubState/UpState 通配语义
+```
+
+**关键说明:**
+- `FullSharableState = SharableState + ReducerLoadableState + ActionBindable`，定义 `typealias BindAction` 和 `static func loadReducers(on:)` 后，框架自动注册 reducer
+- `Store<T>.shared` — 全局单例 Store，按 `ObjectIdentifier(State.self)` 缓存在 `s_mapSharedStore`，首次创建时自动 `attachToUpStore` 挂载到父状态
+- **subStore API**（`State: StateContainable`）：`addSubStore(subStore)` 挂载子 Store（自动注册销毁回调），`getSubStore(of:stateId:)` 获取子 Store，`subStateIds` 查看所有子 Store ID。子 Store 销毁时自动从字典移除，无需手动 remove
+
+**基础使用:**
+```swift
+// 定义状态和 Action
+enum AuthAction: Action {
+    case login(String, String)
+    case loginSuccess(User)
+    case loginFailed(Error)
+}
+
+struct AuthState: FullSharableState {
+    typealias UpState = AppState  // 挂载到根状态
+    typealias BindAction = AuthAction
+    
+    var isLoggedIn: Bool = false
+    var user: User?
+    var error: Error?
+    
+    static func loadReducers(on store: Store<AuthState>) {
+        store.register { state, action in
+            switch action {
+            case .login(let email, let password):
+                // 发起登录请求
+                AuthService.login(email: email, password: password) { result in
+                    switch result {
+                    case .success(let user):
+                        store.dispatch(action: .loginSuccess(user))
+                    case .failure(let error):
+                        store.dispatch(action: .loginFailed(error))
+                    }
+                }
+            case .loginSuccess(let user):
+                state.isLoggedIn = true
+                state.user = user
+            case .loginFailed(let error):
+                state.error = error
+            }
+        }
+    }
+}
+```
+
+**Action 三种调用方式:**
+
+| 方法 | 场景 | 线程要求 | 示例 |
+|------|------|---------|------|
+| `send` | 用户直接操作（按钮点击等） | 必须主线程 | `$state.send(action: .login(email, pwd))` |
+| `apply` | Reducer 中调用其他 Store | 必须主线程 | `Store<OtherState>.shared.apply(action: .xxx)` |
+| `dispatch` | 异步回调/后台任务完成后通知 | **不限线程**（内部自动切主线程） | `Store<AuthState>.shared.dispatch(action: .loginSuccess(user))` |
+
+```swift
+// View 层：用户点击按钮
+$authState.send(action: .login(email, password))
+
+// Reducer 中：通知其他 State
+Store<NotificationState>.shared.apply(action: .showBanner("登录成功"))
+
+// 异步回调/后台线程：网络请求完成后
+Task {
+    let user = try await AuthService.login(email, password)
+    Store<AuthState>.shared.dispatch(action: .loginSuccess(user))
+}
+```
+
+> **注意：** 异步操作（网络请求、Keychain、文件IO等）不要直接在 Reducer 闭包中执行结果赋值。应该在 Service/View 层执行完后，通过 `dispatch` 回调通知 State。
+
+> **`observe` 注意事项：**
+> - 纯回调版 `observe(store:callback:)` 中，若 `callback` 捕获了 `self`，必须使用 `[weak self]` 避免循环引用（持有链：`store → observers → callback → self`）。
+> - 带 Action 版 `observe(store:callback:) -> A?` 内部已用 `[weak self]`，无需额外处理。
+> - B 释放后会自动清理 A 的观察记录（`mapCancellable`），无需手动 `unobserve`。
+> - 仍支持手动调用 `unobserve(store:)` / `unobserveAll(store:)` 提前取消观察。
+
+> **`addDestroyCallback` 注意：** 可多次调用，所有回调在 Store deinit 时依次执行（替代旧的 `setDestroyCallback`，支持多回调）。
+
+> **Store 防重入设计：** Reducer 执行途中若触发新 action（如 `dispatch`），不会递归执行，而是排队到 `pendingActions`。当前 reduce 完成后 `popLast` 取出继续处理，保证状态变更串行。
+
+> **Store 直接赋值：** `store.state = newValue` 和 `store[keyPath] = newValue` 也可直接修改状态（走 `updateStateWithNotify`），但 strictMode 下会 fatalError，推荐统一用 action。
+
+**平台:** iOS 16+, macOS 13+, tvOS 16+, watchOS 9+
+
+**依赖:** module-monitor
+
+---
+
+## ViewFlow - 视图数据绑定
+
+**用途:** SwiftUI 视图与 DataFlow 的连接层，提供响应式绑定
+
+**核心 PropertyWrapper:**
+- `@SharedState` - 跨视图共享状态订阅（`State: SharableState`，内部用 `@ObservedObject` + `SharedStoreStorage`）
+- `@ViewState` - 视图私有状态（`State: StorableViewState`，内部用 `@StateObject` + `ViewStateWrapperStorage`）
+
+**视图状态协议体系:**
+```
+StorableState
+└── AttachableState (UpState: StateContainable)
+    └── StorableViewState (UpState == SceneState)   ← @ViewState 要求的协议
+        └── FullStorableViewState                   ← + ReducerLoadableState + ActionBindable
+
+StorableState
+└── AttachableState
+    └── SharableState (UpState: SharableState)      ← @SharedState 要求的协议
+        └── FullSharableState                        ← + ReducerLoadableState + ActionBindable
+```
+
+**刷新机制:**
+两个包装器内部都有一个 `@Published var refreshTrigger: Bool = false`。Store 状态变化时通过 `addObserver` 回调 toggle `refreshTrigger`，触发 `ObservableObject.objectWillChange` → SwiftUI 视图刷新。
+
+**`@SharedState` 细节:**
+- 普通 `SharableState` → `Store.shared`（全局单例）
+- `SceneSharableState` → `Store.shared(on: sceneId)`（场景级，通过 `SceneSharedStoreContainer` 缓存）
+- `projectedValue` 返回 `Store<State>`，所以 `$authState.send(action:)` 拿到的是 Store
+
+**`@ViewState` 细节:**
+- `Store.box(state)` 创建临时 Store（非共享，生命周期由 SwiftUI `@StateObject` 管理）
+- `configIfNeed` 绑定 sceneId/viewPath，触发 `State.didAddStoreToView(store)` → 自动 `loadReducers`
+- 若 `recordViewState` 开启，注册到 `SceneState` 的 `ViewStateContainer`，支持生命周期追踪
+
+**使用示例:**
+```swift
+struct LoginView: View {
+    @SharedState private var authState: AuthState
+    @ViewState private var form: LoginForm  // 视图私有状态
+    
+    var body: some View {
+        VStack {
+            TextField("Email", text: $form.email)
+            SecureField("Password", text: $form.password)
+            
+            Button("Login") {
+                // 发送 Action 到共享状态
+                $authState.send(action: .login(form.email, form.password))
+            }
+            
+            if let error = authState.error {
+                Text(error.localizedDescription).foregroundColor(.red)
+            }
+        }
+        .disabled(authState.isLoggedIn)
+    }
+}
+```
+
+ 投影返回 Store，Store 的 `dynamicMember subscript` 自动生成 SwiftUI `Binding<T>`。相比手动 `@State var show = false`，走 Store binding 更统一，且内部用 `safeUpdating` 保护，避免 SwiftUI 渲染周期内修改 `@Published` 导致的 "Publishing changes from within view updates" 崩溃。
+
+```swift
+struct ProfileView: View {
+    @SharedState private var userState: UserState
+    
+    var body: some View {
+        VStack {
+            TextField("Email", text: $userState.email)
+            Toggle("订阅", isOn: $userState.subscribe)
+        }
+        // confirmationDialog / alert 尽量用 Store binding，不要用独立的 @State
+        .confirmationDialog(
+            TextL("请选择"),
+            isPresented: $userState.showActionSheet,
+            titleVisibility: .visible
+        ) {
+            Button(TextL("选项一")) { }
+        }
+    }
+}
+```
+
+> **重要：** `confirmationDialog` / `alert` 等通过 `isPresented` 控制显示的组件，尽量用 `$state.showXxx` 绑定到 Store，而非独立的 `@State`。
 
 **平台:** iOS 16+, macOS 13+, tvOS 16+, watchOS 9+
 

@@ -2,7 +2,7 @@
 
 RSV (Resource-State-View) 架构模式的应用实现方案，展示如何使用 swift-modules 框架构建完整业务应用。
 
-> 最后验证：2026-08-03（已对齐源码）
+> 最后验证：2026-08-13（已对齐源码）
 
 ## RSV 架构核心概念
 
@@ -149,10 +149,14 @@ struct SettingsState: FullSharableState {
 
 ```
 StorableState (Sendable)
-├── StateContainable           ← AppState 实现
-└── AttachableState            ← 子 State 实现（需指定 UpState: StateContainable）
+├── StateContainable           ← AppState 实现（subStore API：addSubStore/getSubStore/subStateIds）
+└── AttachableState            ← 子 State 实现（需指定 UpState: StateContainable，defaultStateId）
     └── SharableState          ← 跨视图共享状态（含 InitializableState）
         └── FullSharableState  ← SharableState + ReducerLoadableState + ActionBindable
+
+通配类型（不可实例化 enum，与 Never 对称）：
+Never   ← 用作 UpState 终点（如 AppState.UpState = Never）
+AnyState ← 用作 SubState/UpState 通配语义
 
 ViewFlow 中的视图状态：
 StorableViewState: AttachableState (UpState == SceneState)
