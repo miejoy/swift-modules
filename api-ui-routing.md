@@ -3,7 +3,7 @@
 界面路由框架：导航栈（NavigationFlow）、模态呈现（PresentFlow）、弹窗（AlertFlow）、Toast（ToastFlow）、Window 管理（WindowFlow）。
 
 > 配套文档：`overview.md`（模块索引）、`api-rsv.md`（ViewFlow 路由协议体系）
-> 最后验证：2026-08-02（已对齐源码）
+> 最后验证：2026-11-05（已对齐源码，present-flow 新增 animation 参数）
 
 ---
 
@@ -213,6 +213,11 @@ presentManager.present(routeData)
 // 全屏覆盖（iOS/tvOS/watchOS only）
 presentManager.presentFullCover(SomeView.self, initData)
 
+// 无动画呈现（animation 参数，默认 true；present/dismiss 均支持）
+presentManager.present(SomeView.self, animation: false)
+presentManager.presentFullCover(SomeView.self, animation: false)
+presentManager.present(ViewRoute<InitData>(), data, animation: false)
+
 // 结果路由（async/await）
 let result = try await presentManager.present(
     ResultViewRoute<InitData, ResultData>(), data
@@ -230,7 +235,13 @@ let result = try await presentManager.presentFullCover(
 presentManager.dismissTopView()        // 消失最顶层
 presentManager.dismissViewOnLevel(2)   // 消失指定层级
 presentManager.dismissToRootView()     // 消失到根
+
+// 无动画消失
+presentManager.send(action: .dismissTopView(animation: false))
 ```
+
+> **animation 参数说明**：`animation: Bool = true`，`false` 时底层会在真正改变 presenting 状态的那次 `Store.apply` 调用上用 `withTransaction { disablesAnimations = true }` 包裹，从而抑制 sheet/fullScreenCover 的系统过渡动画。公开入口（`PresentManager`/`PresentAction` 的 present/dismiss 系列方法）均已透传该参数。
+
 
 **平台:** iOS 16+, macOS 13+, tvOS 16+, watchOS 9+
 
