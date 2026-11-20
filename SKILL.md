@@ -12,6 +12,7 @@ allowed-tools: Read, Glob, Grep
 |------------|------------|------|
 | 有哪些框架模块？模块间依赖？分层结构？ | `overview.md` | 框架模块索引表、依赖图、层级概览 |
 | RSV 架构怎么写？State/Action/View 怎么设计？ | `architecture-rsv.md` | 完整 RSV 架构指南（State 模式、Resource 层、异步操作模式、最佳实践） |
+| Resource 怎么设计？什么该定义成资源？Category/Loader 怎么拆？怎么 mock 测试？ | `architecture-resource.md` | Resource 层完整设计指南（识别判定、Category/Loader 多对一、actor 单例、可测试/可替换） |
 | DataFlow / ViewFlow API？状态管理？视图绑定？路由协议？结果路由？ResourceLoadable？ | `api-rsv.md` | DataFlow + ViewFlow + ResourceLoadable 完整 API |
 | Ability 能力系统？能力注册？FuncKey？NetworkAbility/LatestResourceAbility 协议？ | `ability-system.md` | Ability 核心框架 + 能力协议 + 能力实现总览 |
 | 导航 push/pop？模态 present/dismiss？弹窗 Alert？Toast？Window？ | `api-ui-routing.md` | NavigationFlow + PresentFlow + AlertFlow + WindowFlow + ToastFlow |

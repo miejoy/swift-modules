@@ -44,6 +44,7 @@ Then ask questions like:
 | `SKILL.md` | Entry point & routing table |
 | `overview.md` | Module index, dependency graph, layer overview |
 | `architecture-rsv.md` | RSV architecture guide (State patterns, Resource layer, async patterns) |
+| `architecture-resource.md` | Resource layer design guide (what counts as a resource, Category/Loader split, mock testing, swappable implementations) |
 | `api-rsv.md` | DataFlow + ViewFlow + ResourceLoadable API |
 | `api-ui-routing.md` | Navigation / Present / Alert / Window / Toast |
 | `ability-system.md` | Ability registration & protocols |

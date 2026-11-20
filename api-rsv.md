@@ -543,6 +543,10 @@ let picked = try await presentManager.presentFullCover(ItemPickerView.defaultRou
 
 **用途:** 定义可加载资源的统一协议，RSV 架构中 Resource 层的基础协议
 
+> **设计指南见 `architecture-resource.md`** — 什么该定义成资源、Category/Loader 多对一拆分、actor 单例写法、mock 测试与实现替换。本节只列 API。
+
+**核心定位（一句话）：** 任何可以从非内存位置加载的东西（文件、网络、定位、权限、设备信息…）都定义为资源；**State 向下只对接 Resource**，不直连 Service/SDK。
+
 **核心协议:** `LoadableResource`（注意：协议名是 `LoadableResource`，模块名为 `ResourceLoadable`）
 
 ```swift
@@ -559,31 +563,75 @@ public protocol LoadableResource {
 
 | API | 说明 |
 |-----|------|
-| `ResourceCategory` | 资源类别（用于匹配 `ResourceLoader`） |
+| `ResourceCategory` | 资源类别 enum（`.unknown` / `.file` / `.web` / `.custom(String)`），用于匹配 `ResourceLoader` |
 | `ResourceCenter.shared` | 资源调度中心，单例 |
-| `ResourceLoader` | 资源加载器协议，按 `ResourceCategory` 注册到 `ResourceCenter` |
-| `ResourceMonitor` | 资源加载监控 |
-| `resource.open(with:)` | 打开资源，返回 `AsyncStream<Response>` 持续推送 |
-| `resource.openOnce(with:)` | 打开资源只取第一个值 |
+| `ResourceCenter.registerLoader(_:)` | 注册加载器，把 `Loader.categories` 全部指向它；重复注册**覆盖**并记 `duplicateRegistration` 事件 |
+| `ResourceLoader` | 资源加载器协议（`AnyObject, Sendable`），`static var categories: Set<ResourceCategory>` + `load(_:with:)` |
+| `ResourceMonitor` | 资源事件监控（`addResourceLoader` / `noLoaderFoundForResource` / `duplicateRegistration` / `fatalError`） |
+| `resource.open(with:)` | 打开资源，返回 `AsyncStream<Response>` **持续推送** |
+| `resource.openOnce(with:)` | 打开资源**只取第一个值** |
 | `resource.open()` / `resource.openOnce()` | `ExtraData == Void` 时的无参便利方法 |
-| `LoadResourceError` | 加载错误（含 `.noValueReceiveWhenCompletion`） |
+| `LoadResourceError` | `.noLoaderForResource(ResourceCategory)` / `.noValueReceiveWhenCompletion` / `.resourceTypeError` |
+
+**Category 定义方式：** `ResourceCategory` 是 enum，业务侧统一用 `.custom(String)` 扩展静态常量。业务类放 `Constants.swift`，功能性类放对应 Ability 文件：
+
+```swift
+// Constants.swift — 业务 ResourceCategory（与 ViewRoute 并列）
+extension ResourceCategory {
+    static let userProfile = ResourceCategory.custom("user.profile")
+}
+
+// LocationAbility.swift — 功能性 ResourceCategory（内聚在 Ability 内）
+extension ResourceCategory {
+    static let locationPermission = ResourceCategory.custom("location.permission")
+    static let locationUpdates    = ResourceCategory.custom("location.updates")
+}
+```
 
 **使用示例:**
 ```swift
-// 1. 定义资源
+// 1. 定义资源（open 用框架默认实现，无需自己写）
 struct UserProfileResource: LoadableResource {
-    static let category = ResourceCategory("user_profile")
-    typealias ExtraData = String  // userId
+    static var category: ResourceCategory { .userProfile }
+    typealias ExtraData = String        // userId
     typealias Response = UserProfile
+}
 
-    func open(with userId: String) async throws -> AsyncStream<UserProfile> {
-        // 实际由 ResourceLoader 处理，这里通常不需要直接实现
+// 2. 实现 Loader（一个 Loader 可处理多个 Category，优先 actor + 单例）
+actor LocationLoader: ResourceLoader {
+    static let categories: Set<ResourceCategory> = [.locationPermission, .locationUpdates]
+    static let shared = LocationLoader()
+    private let manager = CLLocationManager()   // 多个 Category 共用内部状态
+    private init() {}
+
+    func load<Resource: LoadableResource>(
+        _ resource: Resource,
+        with extraData: Resource.ExtraData
+    ) async throws -> AsyncStream<Resource.Response> {
+        switch Resource.category {
+        case .locationPermission: return try await requestPermission()
+        case .locationUpdates:    return try await startUpdates(with: extraData)
+        default: throw LoadResourceError.resourceTypeError
+        }
     }
 }
 
-// 2. 调用
+// 3. 启动时注册
+ResourceCenter.shared.registerLoader(LocationLoader.shared)
+
+// 4. 调用
 let profile = try await UserProfileResource().openOnce(with: "user_123")
+
+for await coord in try await LocationUpdatesResource().open(with: .best) {
+    Store<LocationState>.shared.dispatch(action: .locationUpdated(coord))
+}
 ```
+
+**关键约定:**
+- `ResourceCategory` 是**数据切面**，粒度细，一个 App 几十上百个正常；`ResourceLoader` 是**实现载体**，粒度粗，可处理多个 Category
+- 同一功能的不同数据获取拆成不同 Category（如定位权限 / 位置监听），但可共用一个 Loader
+- Loader 一般单例，**优先 `actor`**（内部有可变状态时自动保证并发安全）
+- 重复注册会覆盖 —— **正常运行时** `duplicateRegistration` 是告警（两个 Loader 抢同一资源）；**单元测试**是独立流程，覆盖注册 mock Loader 是正常操作
 
 **依赖:** module-monitor
 
